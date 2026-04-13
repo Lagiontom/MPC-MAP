@@ -1,5 +1,5 @@
 function [path] = plan_path(read_only_vars, public_vars)
-% week 3 - rucne definovane
+% week 3 
 
 path = public_vars.path;
 
@@ -8,8 +8,9 @@ if isempty(path)
     
     
     %control_points = get_control_points_line(goal);
-    control_points = get_control_points_circular(goal);
+    %control_points = get_control_points_circular(goal);
     %control_points = get_control_points_sine(goal);
+    control_points = get_control_points_indoor1(goal);
 
     t = 1:size(control_points, 1);
     tt = linspace(1, size(control_points, 1), 20);
@@ -21,6 +22,24 @@ if isempty(path)
 end
 
 end
+
+function [points] = get_control_points_indoor1(goal)
+
+points = [ ...
+        5, 8.5; ...
+        5, 6; ...
+        5, 4; ...
+        5, 2; ...
+        5, 1.5; ...
+        7, 1.5; ...
+        8.5, 1.5; ...
+        9, 3; ...
+        9, 5; ...
+        9, 7; ...
+        goal(1), goal(2)];
+
+end
+
 
 function [points] = get_control_points_line(goal)
 
