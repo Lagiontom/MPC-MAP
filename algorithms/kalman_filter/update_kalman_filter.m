@@ -1,16 +1,16 @@
-function [mu, sigma] = update_kalman_filter(read_only_vars, public_vars)
-%UPDATE_KALMAN_FILTER Summary of this function goes here
-
-mu = public_vars.mu;
-sigma = public_vars.sigma;
-
-% I. Prediction
-u = [];
-[mu, sigma] = ekf_predict(mu, sigma, u, public_vars.kf, read_only_vars.sampling_period);
-
-% II. Measurement
-z = [];
-[mu, sigma] = kf_measure(mu, sigma, z, public_vars.kf);
-
+function [mu, Sigma] = update_kalman_filter(read_only_vars, public_vars)
+   
+    dt = read_only_vars.sampling_period;
+    L = read_only_vars.agent_drive.interwheel_dist;
+    u = public_vars.motion_vector; 
+    
+    z = read_only_vars.gnss_position'; 
+    
+    mu_old = public_vars.mu;
+    Sigma_old = public_vars.sigma;
+      
+    R = public_vars.kf.R; 
+        
+    [mu_bar, Sigma_bar] = ekf_predict(mu_old, Sigma_old, u, R, dt, L);
+    [mu, Sigma] = kf_measure(mu_bar, Sigma_bar, z, public_vars.kf);
 end
-

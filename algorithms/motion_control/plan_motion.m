@@ -24,7 +24,7 @@ function [public_vars] = plan_motion(read_only_vars, public_vars)
     
 
     cumulative_dist = 0;
-    goal_idx = curr_idx;  % Default: zůstal bychom u nejbližšího bodu
+    goal_idx = curr_idx;  
     
     for i = curr_idx:size(path, 1)-1
         segment_dist = sqrt((path(i+1,1) - path(i,1))^2 + (path(i+1,2) - path(i,2))^2);
