@@ -26,4 +26,3 @@ new_particles = new_particles + noise;
 new_particles(:, 3) = wrapToPi(new_particles(:, 3));
 
 end
-

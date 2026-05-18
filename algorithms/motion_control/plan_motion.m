@@ -1,9 +1,46 @@
 function [public_vars] = plan_motion(read_only_vars, public_vars)
 
     
-    lookahead_distance = 0.5;  
-    robot_speed = 0.3;        
     
+    lookahead_distance = 0.5;
+    max_speed = 0.8; %0.8
+    min_speed = 0.3;
+    robot_speed = max_speed;
+    
+   
+    if public_vars.iteration_counter < public_vars.slow_start_duration
+        robot_speed = min(robot_speed, 0.2);
+    end
+    
+    is_uncertain = false;
+    if isfield(public_vars, 'is_ekf_init') && public_vars.is_ekf_init && isfield(public_vars, 'sigma')
+       
+        if public_vars.sigma(3,3) > 1.0, is_uncertain = true; end
+    elseif isfield(public_vars, 'is_pf_init') && public_vars.is_pf_init && ~isempty(public_vars.particles)
+       
+        thetas = public_vars.particles(:,3);
+        circ_var = 1 - sqrt(mean(cos(thetas))^2 + mean(sin(thetas))^2);
+        if circ_var > 0.5, is_uncertain = true; end
+    end
+    
+    if is_uncertain
+        robot_speed = min(robot_speed, 0.2); 
+    end
+
+
+    is_indoor = isempty(read_only_vars.gnss_position) || isnan(read_only_vars.gnss_position(1));
+    if is_indoor
+       
+        if ~isempty(read_only_vars.lidar_distances)
+            min_dist = min(read_only_vars.lidar_distances);
+            safe_dist = 0.6; % m
+            if min_dist < safe_dist
+                speed_scale = max(0, min_dist / safe_dist);
+                proximity_speed = min_speed + (robot_speed - min_speed) * speed_scale;
+                robot_speed = min(robot_speed, proximity_speed);
+            end
+        end
+    end
    
     pose = public_vars.estimated_pose;
     path = public_vars.path;          
@@ -19,61 +56,71 @@ function [public_vars] = plan_motion(read_only_vars, public_vars)
     robot_pos = pose(1:2);
     distances = sqrt((path(:,1) - robot_pos(1)).^2 + (path(:,2) - robot_pos(2)).^2);
     
-
     [~, curr_idx] = min(distances);
     
-
+    
     cumulative_dist = 0;
-    goal_idx = curr_idx;  
+    goal_idx = -1; % Sentinel hodnota
     
     for i = curr_idx:size(path, 1)-1
         segment_dist = sqrt((path(i+1,1) - path(i,1))^2 + (path(i+1,2) - path(i,2))^2);
         cumulative_dist = cumulative_dist + segment_dist;
         
-      
         if cumulative_dist >= lookahead_distance
             goal_idx = i + 1;
             break;
         end
     end
     
-  
-    if goal_idx > size(path, 1)
+    if goal_idx == -1
         goal_idx = size(path, 1);
     end
     
     goal_point = path(goal_idx, :);
     
-   
+  
     dx = goal_point(1) - robot_pos(1);
     dy = goal_point(2) - robot_pos(2);
     alpha = atan2(dy, dx) - pose(3);
-    
-
     alpha = atan2(sin(alpha), cos(alpha));
     
-
-    dist_to_goal = sqrt(dx^2 + dy^2);
+   
+    turn_in_place_threshold = pi / 3; 
+    max_angular_vel = 1.0; 
     
-
-    if dist_to_goal < 1e-3
-        omega = 0;
+    if abs(alpha) > turn_in_place_threshold
+       
+        v = 0; 
+        omega = max_angular_vel * sign(alpha); 
     else
        
-        sin_alpha = sin(alpha);
+        v = robot_speed; 
+        dist_to_goal = sqrt(dx^2 + dy^2);
         
-        if abs(sin_alpha) > 0.02  
-            R = dist_to_goal / (2 * sin_alpha);
-            omega = robot_speed / abs(R);
-            omega = sign(sin_alpha) * omega;
-        else
-            omega = 0;
+        omega = (2 * v * sin(alpha)) / dist_to_goal;
+    end
+    
+ 
+    safety_critical_dist = 0.35; % [m]
+    if ~isempty(read_only_vars.lidar_distances)
+        [min_dist, min_idx] = min(read_only_vars.lidar_distances);
+        
+        if min_dist < safety_critical_dist
+           
+            obstacle_angle = read_only_vars.lidar_config(min_idx);
+            
+          
+            if abs(obstacle_angle) < (pi / 2)
+               
+                repulsive_strength = (1 - (min_dist / safety_critical_dist));
+                omega = -sign(obstacle_angle) * max_angular_vel * repulsive_strength;
+            end
         end
     end
     
   
-    v_left = robot_speed - omega * interwheel_dist / 2;
-    v_right = robot_speed + omega * interwheel_dist / 2;
+    v_right = v + (omega * interwheel_dist / 2);
+    v_left = v - (omega * interwheel_dist / 2);
     
   
     scale = max(1, max(abs([v_right, v_left])) / wheel_speed_max);

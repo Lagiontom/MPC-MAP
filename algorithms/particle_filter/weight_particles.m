@@ -16,6 +16,3 @@ end
 weights = weights / sum(weights);
 
 end
-
-
-

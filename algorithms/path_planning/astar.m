@@ -1,111 +1,99 @@
 function [path] = astar(read_only_vars, public_vars)
-    
-    start_world = public_vars.estimated_pose(1:2);
-    goal_world = read_only_vars.map.goal;
-    grid = read_only_vars.discrete_map.map; 
-    resolution = read_only_vars.map.discretization_step;
+    % 1. Načtení dat a převod na mřížku
+    start_w = public_vars.estimated_pose(1:2);
+    goal_w = read_only_vars.map.goal(1:2);
+    grid = read_only_vars.discrete_map.map;
+    res = read_only_vars.map.discretization_step;
     origin = read_only_vars.map.limits(1:2);
-    
-    
-    clearance_cells = ceil(0.35 / resolution);  
     [rows, cols] = size(grid);
-    new_grid = grid;
+    
+    % 2. Vektorizovaná Cost Map (bez toolboxu)
+    hard_c = min(0.3, public_vars.path_planning_clearance) / res; 
+    soft_c = (public_vars.path_planning_clearance * 2.0) / res;
+    
+    % Předpočítání kruhové masky
+    [X, Y] = meshgrid(-ceil(soft_c):ceil(soft_c));
+    dist = sqrt(X.^2 + Y.^2);
+    mask = dist <= soft_c;
+    dX = X(mask); dY = Y(mask);
+    penalties = 15 * (1 - dist(mask) / soft_c);
+    penalties(dist(mask) <= hard_c) = Inf; % Zdi jsou absolutně neprůjezdné
+    
+    % Aplikace masky na mapu
+    cost_map = zeros(rows, cols);
     [obs_r, obs_c] = find(grid == 1);
     for k = 1:length(obs_r)
-        r = obs_r(k); c = obs_c(k);
-        r_range = max(1,r-clearance_cells):min(rows,r+clearance_cells);
-        c_range = max(1,c-clearance_cells):min(cols,c+clearance_cells);
-        new_grid(r_range, c_range) = 1;
+        nr = obs_r(k) + dY; nc = obs_c(k) + dX;
+        valid = nr >= 1 & nr <= rows & nc >= 1 & nc <= cols;
+        idx = sub2ind([rows, cols], nr(valid), nc(valid));
+        cost_map(idx) = max(cost_map(idx), penalties(valid));
     end
     
+    % 3. Výpočet startu/cíle s ošetřením mezí
+    s_c = max(1, min(cols, round((start_w(1) - origin(1))/res) + 1));
+    s_r = max(1, min(rows, round((start_w(2) - origin(2))/res) + 1));
+    g_c = max(1, min(cols, round((goal_w(1) - origin(1))/res) + 1));
+    g_r = max(1, min(rows, round((goal_w(2) - origin(2))/res) + 1));
     
-    start_col = round((start_world(1) - origin(1)) / resolution) + 1;
-    start_row = round((start_world(2) - origin(2)) / resolution) + 1;
-    goal_col = round((goal_world(1) - origin(1)) / resolution) + 1;
-    goal_row = round((goal_world(2) - origin(2)) / resolution) + 1;
+    cost_map(s_r, s_c) = 0; cost_map(g_r, g_c) = 0; % Vždy uvolníme start a cíl
     
+    % 4. Spuštění A*
+    [p_r, p_c] = astar_core(cost_map, s_r, s_c, g_r, g_c, rows, cols);
     
-    new_grid(start_row, start_col) = 0;
-    new_grid(goal_row, goal_col) = 0;
-    
-    grid = new_grid;
-    
-  
-    [path_rows, path_cols] = astar_core(~grid, start_row, start_col, goal_row, goal_col, rows, cols);
-    
-   
-    path = [(path_cols-1)*resolution + origin(1), (path_rows-1)*resolution + origin(2)];
-    
-    
-    gw = goal_world(1:2);
-    path = [start_world(:)'; path; gw(:)'];
-    
-    
-    keep = [true; sqrt(sum(diff(path).^2, 2)) > 0.01];
-    path = path(keep, :);
+    % 5. Formátování trasy
+    path = [(p_c-1)*res + origin(1), (p_r-1)*res + origin(2)];
+    path = [start_w(:)'; path; goal_w(:)'];
+    path = path([true; sqrt(sum(diff(path).^2, 2)) > 0.01], :);
 end
 
-function [path_rows, path_cols] = astar_core(grid, start_row, start_col, goal_row, goal_col, rows, cols)
-   
-    open_set = [heuristic(start_row, start_col, goal_row, goal_col), start_row, start_col];
-    
+function [p_r, p_c] = astar_core(cost_map, s_r, s_c, g_r, g_c, rows, cols)
+    open_set = [heuristic(s_r, s_c, g_r, g_c), s_r, s_c];
     came_from = containers.Map();
     g_score = inf(rows, cols);
-    g_score(start_row, start_col) = 0;
+    g_score(s_r, s_c) = 0;
     
     while ~isempty(open_set)
         [~, idx] = min(open_set(:,1));
-        current_f = open_set(idx,1);
-        current_row = open_set(idx,2);
-        current_col = open_set(idx,3);
+        c_r = open_set(idx,2); c_c = open_set(idx,3);
         open_set(idx,:) = [];
         
-        if current_row == goal_row && current_col == goal_col
-            [path_rows, path_cols] = reconstruct_path(came_from, goal_row, goal_col);
-            return;
+        if c_r == g_r && c_c == g_c
+            [p_r, p_c] = reconstruct_path(came_from, g_r, g_c); return;
         end
         
         for dr = -1:1
             for dc = -1:1
-                if dr == 0 && dc == 0, continue; end
-                neighbor_row = current_row + dr;
-                neighbor_col = current_col + dc;
+                n_r = c_r + dr; n_c = c_c + dc;
                 
-                if neighbor_row < 1 || neighbor_row > rows || ...
-                   neighbor_col < 1 || neighbor_col > cols || ...
-                   grid(neighbor_row, neighbor_col) == 0
+                % Přeskočení neplatných bodů a překážek (Inf)
+                if n_r < 1 || n_r > rows || n_c < 1 || n_c > cols || cost_map(n_r, n_c) == Inf
                     continue;
                 end
                 
-                tentative_g = g_score(current_row, current_col) + norm([dr, dc]);
-                
-                if tentative_g < g_score(neighbor_row, neighbor_col)
-                    came_from(sprintf('%d,%d', neighbor_row, neighbor_col)) = [current_row, current_col];
-                    g_score(neighbor_row, neighbor_col) = tentative_g;
-                    f_score = tentative_g + heuristic(neighbor_row, neighbor_col, goal_row, goal_col);
-                    open_set = [open_set; [f_score, neighbor_row, neighbor_col]];
+                tent_g = g_score(c_r, c_c) + norm([dr, dc]) + cost_map(n_r, n_c);
+                if tent_g < g_score(n_r, n_c)
+                    came_from(sprintf('%d,%d', n_r, n_c)) = [c_r, c_c];
+                    g_score(n_r, n_c) = tent_g;
+                    f = tent_g + heuristic(n_r, n_c, g_r, g_c);
+                    open_set = [open_set; [f, n_r, n_c]];
                 end
             end
         end
     end
-    error('No path found!');
+    error('Cesta nenalezena!');
 end
 
-function h = heuristic(row1, col1, row2, col2)
-    dx = abs(col1 - col2);
-    dy = abs(row1 - row2);
+function h = heuristic(r1, c1, r2, c2)
+    dx = abs(c1 - c2); dy = abs(r1 - r2);
     h = (dx + dy) + (sqrt(2) - 2) * min(dx, dy);
 end
 
-function [path_rows, path_cols] = reconstruct_path(came_from, goal_row, goal_col)
-    path_rows = goal_row;
-    path_cols = goal_col;
-    current_key = sprintf('%d,%d', goal_row, goal_col);
-    
-    while isKey(came_from, current_key)
-        current = came_from(current_key);
-        path_rows = [current(1); path_rows];
-        path_cols = [current(2); path_cols];
-        current_key = sprintf('%d,%d', current(1), current(2));
+function [p_r, p_c] = reconstruct_path(came_from, g_r, g_c)
+    p_r = g_r; p_c = g_c;
+    curr = sprintf('%d,%d', g_r, g_c);
+    while isKey(came_from, curr)
+        val = came_from(curr);
+        p_r = [val(1); p_r]; p_c = [val(2); p_c];
+        curr = sprintf('%d,%d', val(1), val(2));
     end
 end

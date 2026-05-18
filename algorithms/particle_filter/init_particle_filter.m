@@ -44,4 +44,3 @@ public_vars.weights = ones(num_particles, 1) / num_particles;
 
 end
 
-
