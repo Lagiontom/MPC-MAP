@@ -18,6 +18,6 @@ function [mu_bar, Sigma_bar] = ekf_predict(mu, Sigma, u, R, dt, L)
     G(1,3) = -sin(theta) * v * dt;
     G(2,3) = cos(theta) * v * dt;
     
-
+    mu_bar(3) = mod(mu_bar(3) + pi, 2 * pi) - pi;
     Sigma_bar = G * Sigma * G' + R;
 end

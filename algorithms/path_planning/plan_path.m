@@ -9,7 +9,7 @@ function [path] = plan_path(read_only_vars, public_vars)
         planning_required = true; 
     end
     
-    if planning_required
+    if planning_required && read_only_vars.counter > 2
         raw_path = astar(read_only_vars, public_vars);
         path = smooth_path(raw_path);
     else

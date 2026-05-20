@@ -1,4 +1,7 @@
 function [path] = astar(read_only_vars, public_vars)
+
+
+    path_planning_clearance = 0.7; % ZVYSENO pro vetsi vzdalenost od sten
     % 1. Načtení dat a převod na mřížku
     start_w = public_vars.estimated_pose(1:2);
     goal_w = read_only_vars.map.goal(1:2);
@@ -8,8 +11,8 @@ function [path] = astar(read_only_vars, public_vars)
     [rows, cols] = size(grid);
     
     % 2. Vektorizovaná Cost Map (bez toolboxu)
-    hard_c = min(0.3, public_vars.path_planning_clearance) / res; 
-    soft_c = (public_vars.path_planning_clearance * 2.0) / res;
+    hard_c = min(0.3, path_planning_clearance) / res; 
+    soft_c = (path_planning_clearance * 2.0) / res;
     
     % Předpočítání kruhové masky
     [X, Y] = meshgrid(-ceil(soft_c):ceil(soft_c));

@@ -34,10 +34,9 @@ else
 end
 
 
-theta_new = theta + w_noisy * dt + sigma_theta * randn;  
-
+% Změna na konci funkce predict_pose:
+theta_new = theta + w_noisy * dt; 
 theta_new = mod(theta_new + pi, 2 * pi) - pi;
-
 new_pose = [x_new, y_new, theta_new];
 
 end

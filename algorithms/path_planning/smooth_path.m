@@ -2,9 +2,9 @@ function [new_path] = smooth_path(old_path)
     new_path = old_path;
     if ~isempty(new_path) && size(new_path, 1) > 2
         weight_data = 0.3;   
-        weight_smooth = 0.2; 
+        weight_smooth = 0.3; 
         tolerance = 0.00001;
-        
+        max_iters = 2000; 
         change = tolerance;
         max_iters = 1000;
         iter = 0;
